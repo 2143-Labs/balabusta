@@ -1,0 +1,67 @@
+name: balabusta-cd
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 0'
+
+env:
+  registry: ghcr.io/2143-labs
+  repo: balabusta
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build and push
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: "${{ env.registry }}/${{ env.repo }}:${{ github.run_number }}"
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Set image tag output
+      id: meta
+      run: echo "version=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  update-argo:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      NEW_TAG: ${{ needs.build.outputs.image_tag }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: 2143-Labs/argo
+        ssh-key: ${{ secrets.DEPLOY_KEY_ARGO }}
+
+    - name: Update image tags in deployment YAMLs
+      run: |
+        git remote set-url origin git@github.com:2143-Labs/argo.git
+        sed -i "s|\(ghcr\.io/2143-labs/balabusta:\)[0-9]*|\1${{ env.NEW_TAG }}|g" workloads/friends/balabusta/deployment.yaml
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git diff --quiet && echo "No changes" || (git commit -am "bump balabusta image to ${{ env.NEW_TAG }}" && git push)
