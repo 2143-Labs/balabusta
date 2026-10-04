@@ -1,4 +1,4 @@
-FROM nginx:1.30.4-alpine
+FROM nginx:1.30.5-alpine
 RUN rm /etc/nginx/conf.d/default.conf && \
     sed -i 's|pid\s\+/run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
     sed -i 's|/var/log/nginx/error.log|/dev/stderr|' /etc/nginx/nginx.conf && \
